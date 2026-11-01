@@ -39,22 +39,34 @@ def find_backup_files(target_dir):
         list: A list of file paths to backup files.
     """
     backup_files = []
+    files_scanned = 0
+    walk_errors = []
+
+    def on_walk_error(error):
+        logging.error(f"Error walking directory: {error}")
+        walk_errors.append(error)
+
     try:
-        for root, _, files in os.walk(target_dir):
+        for root, _, files in os.walk(target_dir, onerror=on_walk_error):
             for file in files:
+                files_scanned += 1
                 for ext in BACKUP_EXTENSIONS:
-                    if file.endswith(ext) or re.match(r'^\..*\.swp$', file): #covers .*.swp files as well
+                    if file.endswith(ext) or file.startswith('~') or re.match(r'^\..*\.swp$', file): #covers .*.swp files as well
                         file_path = os.path.join(root, file)
                         backup_files.append(file_path)
                         break # Avoid duplicate matches if a file has multiple backup extensions.
 
+        if walk_errors:
+            logging.error(f"Backup scan incomplete: {len(walk_errors)} walk error(s) occurred.")
+            return None
+        logging.info(f"End of scan summary: {files_scanned} files scanned, {len(backup_files)} matches found.")
         return backup_files
     except OSError as e:
         logging.error(f"Error accessing directory {target_dir}: {e}")
-        return []  # Return an empty list to avoid further errors.
+        return None
     except Exception as e:
         logging.error(f"An unexpected error occurred during backup file search: {e}")
-        return [] # Return an empty list in case of unexpected errors
+        return None
 
 def load_config(config_file):
     """
@@ -120,11 +132,20 @@ def scan_config_files(target_dir, config_rules):
         target_dir (str): The directory to scan.
         config_rules (list): A list of rules to apply for scanning.
     """
+    files_scanned = 0
+    total_matches = 0
+    walk_errors = []
+
+    def on_walk_error(error):
+        logging.error(f"Error walking directory: {error}")
+        walk_errors.append(error)
+
     try:
-        for root, _, files in os.walk(target_dir):
+        for root, _, files in os.walk(target_dir, onerror=on_walk_error):
             for file in files:
                 if any(file.endswith(ext) for ext in CONFIG_EXTENSIONS):
                     file_path = os.path.join(root, file)
+                    files_scanned += 1
                     try:
                         with open(file_path, 'r') as f:
                             content = f.read()
@@ -139,17 +160,25 @@ def scan_config_files(target_dir, config_rules):
 
                                 matches = re.findall(regex, content)
                                 if matches:
-                                    logging.warning(f"Potential security misconfiguration in {file_path}: Rule '{rule_name}' matched: {matches}")
+                                    total_matches += len(matches)
+                                    logging.warning(f"Potential security misconfiguration in {file_path}: Rule '{rule_name}' matched {len(matches)} time(s).")
 
                     except OSError as e:
                         logging.error(f"Error reading file {file_path}: {e}")
                     except Exception as e:
                         logging.error(f"An unexpected error occurred while scanning {file_path}: {e}")
 
+        if walk_errors:
+            logging.error(f"Config scan incomplete: {len(walk_errors)} walk error(s) occurred.")
+            return False
+        logging.info(f"End of scan summary: {files_scanned} files scanned, {total_matches} matches found.")
+        return True
     except OSError as e:
         logging.error(f"Error accessing directory {target_dir}: {e}")
+        return False
     except Exception as e:
         logging.error(f"An unexpected error occurred during config file scanning: {e}")
+        return False
 
 def main():
     """
@@ -165,10 +194,18 @@ def main():
     if not os.path.isdir(target_directory):
         logging.error(f"Target directory '{target_directory}' is not a valid directory.")
         sys.exit(1)
-    
+
+    if not args.backup and not args.config:
+        logging.error("No scan selected. Use -b for backup file scanning and/or -c <config> for config scanning.")
+        sys.exit(2)
+
     if args.backup:
         logging.info("Scanning for backup files...")
         backup_files = find_backup_files(target_directory)
+
+        if backup_files is None:
+            logging.error("Backup file scan failed.")
+            sys.exit(1)
 
         if backup_files:
             logging.warning("Found the following backup files:")
@@ -197,11 +234,14 @@ def main():
             }
 
             if validate_config(config_data, config_schema):
-                scan_config_files(target_directory, config_data)
+                if not scan_config_files(target_directory, config_data):
+                    sys.exit(1)
             else:
                 logging.error("Configuration file validation failed.  Please check the file format and schema.")
+                sys.exit(1)
         else:
             logging.error("Failed to load configuration file.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

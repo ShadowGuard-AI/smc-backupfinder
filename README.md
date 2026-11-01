@@ -14,5 +14,9 @@ Attempts to locate common backup file names (e.g., *.bak, *.old, ~*, .*.swp) in 
 - `-b`: Enable backup file scanning.
 - `-v`: No description provided
 
+## Behaviour notes
+
+Running with neither `-b` nor `-c` is a usage error and exits with status 2. A malformed, missing, or empty configuration file, and a configuration that fails validation, exit with status 1. Config scan warnings name the rule, the file, and the match count only; matched values are never printed. Every completed scan ends with a summary line giving files scanned and matches found, and a directory walk error is reported as an error and fails the run.
+
 ## License
 Copyright (c) ShadowGuardAI
