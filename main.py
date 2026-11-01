@@ -51,6 +51,7 @@ def find_backup_files(target_dir):
             for file in files:
                 files_scanned += 1
                 for ext in BACKUP_EXTENSIONS:
+                    # Two of these three tests do not involve ext at all, so the loop over extensions is doing less than it looks: the prefix and swap tests would match on the first pass regardless. The break below is what saves a tilde file from being added once per extension.
                     if file.endswith(ext) or file.startswith('~') or re.match(r'^\..*\.swp$', file): #covers .*.swp files as well
                         file_path = os.path.join(root, file)
                         backup_files.append(file_path)
@@ -158,6 +159,7 @@ def scan_config_files(target_dir, config_rules):
                                     logging.warning(f"Rule '{rule_name}' has no regex defined. Skipping.")
                                     continue
 
+                                # The rule pattern is recompiled from its string form for every file, and a pattern that is not valid regex fails inside this per file handler. One bad rule therefore logs an unexpected error once per config file in the tree instead of failing once at load time.
                                 matches = re.findall(regex, content)
                                 if matches:
                                     total_matches += len(matches)
@@ -171,6 +173,7 @@ def scan_config_files(target_dir, config_rules):
         if walk_errors:
             logging.error(f"Config scan incomplete: {len(walk_errors)} walk error(s) occurred.")
             return False
+        # A match count from findall counts matched groups as written by the pattern author, so two rules hunting the same secret in one file both add to the total. The summary number is matches across rules, not files with problems and not distinct secrets.
         logging.info(f"End of scan summary: {files_scanned} files scanned, {total_matches} matches found.")
         return True
     except OSError as e:
@@ -219,6 +222,7 @@ def main():
         config_file = args.config
         config_data = load_config(config_file)
 
+        # This truthiness test merges two different situations into one failure line: a config that failed to load, and a config that loaded fine but is an empty list. An empty rule set is a legitimate, if pointless, input, yet I report it as a load failure and exit.
         if config_data:
             # Basic schema for config validation (expand as needed)
             config_schema = {
