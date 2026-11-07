@@ -141,6 +141,15 @@ def scan_config_files(target_dir, config_rules):
         logging.error(f"Error walking directory: {error}")
         walk_errors.append(error)
 
+    for rule in config_rules:
+        regex = rule.get('regex') if isinstance(rule, dict) else None
+        if regex:
+            try:
+                re.compile(regex)
+            except re.error as e:
+                logging.error(f"Rule '{rule.get('name', 'Unnamed Rule')}' has an invalid regex: {e}")
+                return False
+
     try:
         for root, _, files in os.walk(target_dir, onerror=on_walk_error):
             for file in files:
